@@ -53,6 +53,9 @@ sisotool(Gd);
 fprintf('\nFunción de transferencia a lazo cerrado F(z):\n');
 F
 
+fprintf('\Compensador C):\n');
+C
+
 %% Mostrar polos y ceros
 fprintf('\nPolos del sistema cerrado:\n');
 disp(pole(F));
@@ -64,3 +67,19 @@ disp(zero(F));
  figure;
  pzmap(F);
  title('Polos y ceros del sistema a lazo cerrado');
+ 
+ %% 7. Cálculo de desempeño dinámico
+[y, t] = step(F);
+y_final = y(end);
+y_max = max(y);
+overshoot = (y_max - y_final) / y_final * 100;
+
+idx_ts = find(abs(y - y_final) > 0.02 * y_final, 1, 'last');
+if isempty(idx_ts)
+    ts2 = 0;
+else
+    ts2 = t(idx_ts);
+end
+
+fprintf('\nSobrepaso: %.2f %%\n', overshoot);
+fprintf('Tiempo de establecimiento (2%%): %.3f s\n', ts2);
