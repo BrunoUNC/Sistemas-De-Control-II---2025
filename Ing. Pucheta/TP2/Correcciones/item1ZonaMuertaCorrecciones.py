@@ -67,11 +67,12 @@ Ki_int = K[:, 3]
 ################################################
 # Zona muerta como función continua por partes #
 ################################################
-def aplicar_zona_muerta(u, umbral):
+def zona_muerta(u, umbral):
     if abs(u) > umbral:
         return u - umbral * np.sign(u)
     else:
         return 0.0
+
 
 
 # ============================
@@ -84,7 +85,7 @@ h = Tmin / 20
 print(f"Paso de integración h = {h:.2e} s")
 
 # Simulación
-tF = 20
+tF = 2
 N = int(tF / h)
 t = np.linspace(0, tF, N)
 ref = (np.pi / 2) * square(2 * np.pi * (1 / 10) * t)
@@ -103,7 +104,7 @@ for k in range(N - 1):
 
     # Control ampliado
     u_k = (-Kx @ X[:, k] - Ki_int * e_int[k + 1]).item()
-    u_k = aplicar_zona_muerta(u_k, 0.5)      # Aplicación de zona muerta corregida
+    u_k = zona_muerta(u_k, 0.5)      # Aplicación de zona muerta corregida
     u[k] = u_k
 
     corriente[k] = ia
