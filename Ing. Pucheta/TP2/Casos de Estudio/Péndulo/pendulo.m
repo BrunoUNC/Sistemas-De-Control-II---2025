@@ -1,126 +1,108 @@
-%% Caso de estudio 3. Sistema no lineal de cuatro variables de estado. Péndulo Grúa.
-%% Sin observador
+%% Caso de estudio 3. Sistema no lineal de cuatro variables de estado con y sin observador (todo en tiempo continuo)
+
 
 clear all;
 close all;
 clc;
 
-%% Definición de parámetros del sistema
-m = 0.1;    % Masa del péndulo [kg]
-F = 0.1;    % Coeficiente de fricción [N.s/m]
+%% Parámetros físicos del sistema
+m = 1;    % Masa del péndulo [kg]
+F = 0.1;    % Coeficiente de fricción [N·s/m]
 l = 1.6;    % Longitud del péndulo [m]
-g = 9.8;    % Aceleración gravitatoria [m/s^2]
+g = 9.8;    % Aceleración gravitatoria [m/s²]
 M = 1.5;    % Masa del carro [kg]
 
-%% Matrices del sistema continuo linealizado alrededor de (delta=0, phi=0)
-Ac = [0 1 0 0;
-      0 -F/M -m*g/M 0;
-      0 0 0 1;
-      0 -F/(l*M) -g*(m+M)/(l*M) 0];
-Bc = [0; 1/M; 0; 1/(l*M)];
-Cc = [1 0 0 0; 0 0 1 0];  % Salidas: desplazamiento y ángulo
-Dc = [0];
+%% Matrices del sistema continuo linealizado alrededor del equilibrio (delta = 0, phi = 0)
+A = [0 1 0 0;
+     0 -F/M -m*g/M 0;
+     0 0 0 1;
+     0 -F/(l*M) -g*(m+M)/(l*M) 0];
+B = [0; 1/M; 0; 1/(l*M)];
+C = [1 0 0 0; 0 0 1 0];  % Salidas: desplazamiento y ángulo
 
-%% Tiempos de muestreo y simulación
-ts = 1e-2;      % Tiempo de muestreo [s]
-T = 25;        % Tiempo total de simulación [s]
-h = 1e-4;      % Paso de integración [s]
-Kmax = T / ts; % Cantidad de iteraciones del lazo externo
+%% Configuración temporal
+T = 25;      % Tiempo total de simulación [s]
+h = 1e-4;    % Paso de integración [s]
+t = 0:h:T;
 
-%% Discretización del sistema
-sys = ss(Ac, Bc, Cc, Dc);
-dSys = c2d(sys, ts, 'zoh');
-A = dSys.A;
-B = dSys.B;
-
-%% Ampliación del sistema para referencia en desplazamiento (delta)
-Cref = Cc(1,:);  % Solo se considera la salida del desplazamiento
-aA = [A, zeros(4,1); -Cref*A, 1];
+%% Ampliación del sistema para control integral (solo en delta)
+Cref = C(1, :);
+aA = [A, zeros(4, 1); -Cref*A, 0];
 aB = [B; -Cref*B];
-Q = diag([0.1 1e-2 1 0.1 9.3e-6]);
-R = 1.9e-4;
-K = dlqr(aA, aB, Q, R);
-Kp = K(1:4);     % Parte proporcional (retroalimentación de estados)
-Ki = -K(5);      % Parte integral (integrador del error)
+Q = diag([10 0.1 10 0.1 3]);
+R = 0.1;
+K = lqr(aA, aB, Q, R);
+Kp = K(1:4);
+Ki = -K(5);
 
-%% Inicialización de variables
-phi(1) = pi;                      % Condición inicial del ángulo
-x = [0; 0; phi(1); 0];            % Estado inicial del sistema
-x_op = [0; 0; pi; 0];             % Punto de operación deseado
-v(1) = 0;                         % Estado del integrador del error
-reference(1) = 10;                % Referencia deseada para delta
+%% Observador de Luenberger en tiempo continuo (estimación de todo el estado a partir de delta y phi)
+Ao = A';
+Bo = C';
+Qo = diag([0.001 1000 0.5 0.0001]);
+Ro = diag([100 100]);  % <- Matriz R ahora es diagonal (dual al número de salidas)
+Ko = lqr(Ao, Bo, Qo, Ro)';
 
-%% Simulación del sistema no lineal
-K = Kp;
-KI = Ki;
-i = 1;
+%% Inicialización de estados y señales
+n = length(t);
+delta = zeros(1, n); deltaP = zeros(1, n); phi = zeros(1, n); omega = zeros(1, n);
+delta_hat = zeros(1, n); deltaP_hat = zeros(1, n); phi_hat = zeros(1, n); omega_hat = zeros(1, n);
+u_real = zeros(1, n); u_obs = zeros(1, n);
+reference = 10 * ones(1, n);
 
-delta = x(1);
-deltaP = x(2);
-omega = x(4);
+x_real = [0; 0; pi; 0];
+x_hat = [0; 0; pi; 0];
+x_op = [0; 0; pi; 0];
+e_int = 0;
+e_int_hat = 0;
 
-for index = 1:Kmax
-    y = Cc*x;
-    v(index+1) = v(index) + reference(index) - y(1);
-    u1(index) = -K*(x - x_op) + KI*v(index+1);
+%% Simulación en tiempo continuo
+for k = 1:n-1
+    y = C * x_real;
+    y_hat = C * (x_hat - x_op);
+    
 
-    % Zona muerta en la acción de control
-    if abs(u1(index)) < 1
-        u1(index) = 0;
-    else
-        u1(index) = sign(u1(index)) * (abs(u1(index)) - 1);
-    end
+    err = reference(k) - y(1);
+    err_hat = reference(k) - y_hat(1);
+    e_int = e_int + h * err;
+    e_int_hat = e_int_hat + h * err_hat;
 
-    for j = 1:(ts/h)
-        % Dinámica no lineal del sistema
-        u(i) = u1(index);
-        phiPP = (1/l)*(g*sin(x(3)) - ((1/(M+m))*(u(i) - m*l*0*cos(x(3)) + m*l*x(4)^2*sin(x(3)) - F*x(2))) * cos(x(3)));
-        x(2) = x(2) + h*(1/(M+m))*(u(i) - m*l*phiPP*cos(x(3)) + m*l*x(4)^2*sin(x(3)) - F*x(2));
-        x(1) = x(1) + h*x(2);
-        x(4) = x(4) + h*phiPP;
-        x(3) = x(3) + h*x(4);
+    % Control LQR con acción integral
+    u_k = -Kp * (x_real - x_op) + Ki * e_int;
+    u_hat_k = -Kp * (x_hat - x_op) + Ki * e_int_hat;
 
-        % Guardado para gráficas
-        delta(i+1) = x(1);
-        deltaP(i+1) = x(2);
-        phi(i+1) = x(3);
-        omega(i+1) = x(4);
+    % Zona muerta
+    % if abs(u_k) < 1, u_k = 0; else, u_k = sign(u_k) * (abs(u_k) - 1); end
+    % if abs(u_hat_k) < 1, u_hat_k = 0; else, u_hat_k = sign(u_hat_k) * (abs(u_hat_k) - 1); end
 
-        reference(i+1) = reference(i);
-        i = i+1;
-    end
+    % Dinámica real no lineal
+    phi_pp = (1/l)*(g*sin(x_real(3)) - ((1/(M+m))*(u_k - m*l*0*cos(x_real(3)) + m*l*x_real(4)^2*sin(x_real(3)) - F*x_real(2))) * cos(x_real(3)));
+    x_real(2) = x_real(2) + h*(1/(M+m))*(u_k - m*l*phi_pp*cos(x_real(3)) + m*l*x_real(4)^2*sin(x_real(3)) - F*x_real(2));
+    x_real(1) = x_real(1) + h * x_real(2);
+    x_real(4) = x_real(4) + h * phi_pp;
+    x_real(3) = x_real(3) + h * x_real(4);
+
+    % Observador (estimación del estado)
+    x_hat_dot = A*x_hat + B*u_hat_k + Ko*(y - y_hat);
+    x_hat = x_hat + h * x_hat_dot;
+    
+
+    % Guardar señales
+    delta(k+1) = x_real(1); deltaP(k+1) = x_real(2); phi(k+1) = x_real(3); omega(k+1) = x_real(4);
+    delta_hat(k+1) = x_hat(1); deltaP_hat(k+1) = x_hat(2); phi_hat(k+1) = x_hat(3); omega_hat(k+1) = x_hat(4);
+    u_real(k) = u_k; u_obs(k) = u_hat_k;
 end
 
-u(i) = u1(index);
-t = 0:h:(length(delta)-1)*h;
-
-%% Gráficas finales en una única ventana
+%% Gráficas comparativas
 figure;
-subplot(5,1,1);
-plot(t, delta, 'LineWidth', 1.5); hold on;
-plot(t, reference(1:length(t)), 'r--', 'LineWidth', 1.5); hold off; grid on;
-xlabel('Tiempo [seg]'); ylabel('Distancia [m]'); title('Desplazamiento \delta'); legend('\delta', 'Referencia');
+subplot(3,1,1);
+plot(t, delta, 'b', t, delta_hat, 'r--'); grid on;
+title('Desplazamiento \delta'); ylabel('[m]'); legend('Real','Estimado');
 
-subplot(5,1,2);
-plot(t, deltaP, 'LineWidth', 1.5); grid on;
-xlabel('Tiempo [seg]'); ylabel('Velocidad [m/s]'); title('Velocidad de desplazamiento');
+subplot(3,1,2);
+plot(t, phi, 'b', t, phi_hat, 'r--'); grid on;
+title('Ángulo \phi'); ylabel('[rad]'); legend('Real','Estimado');
 
-subplot(5,1,3);
-plot(t, phi, 'LineWidth', 1.5); grid on;
-xlabel('Tiempo [seg]'); ylabel('Ángulo [rad]'); title('Ángulo \phi');
+subplot(3,1,3);
+plot(t, u_real, 'b', t, u_obs, 'r--'); grid on;
+title('Acción de control'); ylabel('[V]'); xlabel('Tiempo [s]'); legend('Sin observador','Con observador');
 
-subplot(5,1,4);
-plot(t, phi/pi*100 - 100, 'LineWidth', 1.5); grid on;
-xlabel('Tiempo [seg]'); ylabel('Error [%]'); title('Ángulo \phi respecto a \pi');
-
-subplot(5,1,5);
-plot(t, omega, 'LineWidth', 1.5); grid on;
-xlabel('Tiempo [seg]'); ylabel('Velocidad angular [rad/s]'); title('Velocidad angular');
-
-figure;
-plot(phi, omega, 'LineWidth', 1.5); grid on;
-xlabel('Ángulo \phi [rad]'); ylabel('Velocidad angular \omega [rad/s]'); title('Plano de fase: \phi vs \omega');
-
-figure;
-plot(delta, deltaP, 'LineWidth', 1.5); grid on;
-xlabel('Distancia \delta [m]'); ylabel('Velocidad \delta'' [m/s]'); title('Plano de fase: \delta vs \delta''');
