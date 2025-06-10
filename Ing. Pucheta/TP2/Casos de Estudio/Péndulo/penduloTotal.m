@@ -13,7 +13,7 @@ l = 1.6;    % Longitud del péndulo [m]
 g = 9.8;    % Aceleración gravitatoria [m/s²]
 M = 1.5;    % Masa del carro [kg]
 
-%% Matrices del sistema continuo linealizado alrededor del equilibrio (delta = 0, phi = pi/2)
+%% Matrices del sistema continuo linealizado alrededor del equilibrio (delta = 0, phi = pi)
 A = [0 1 0 0;
      0 -F/M -m*g/M 0;
      0 0 0 1;
