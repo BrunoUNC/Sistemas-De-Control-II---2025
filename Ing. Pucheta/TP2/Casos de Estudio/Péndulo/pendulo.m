@@ -88,7 +88,7 @@ for k = 1:n-1
 
     % Guardar señales
     delta(k+1) = x_real(1); deltaP(k+1) = x_real(2); phi(k+1) = x_real(3); omega(k+1) = x_real(4);
-    delta_hat(k+1) = x_hat(1); deltaP_hat(k+1) = x_hat(2); phi_hat(k+1) = x_hat(3); omega_hat(k+1) = x_hat(4);
+    delta_hat(k+1) = x_hat(1); deltaP_hat(k+1) = x_hat(2); phi_hat(k+1) = x_hat(3)+pi; omega_hat(k+1) = x_hat(4);
     u_real(k) = u_k; u_obs(k) = u_hat_k;
 end
 
